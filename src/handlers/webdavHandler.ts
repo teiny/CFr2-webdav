@@ -187,7 +187,7 @@ async function handleDelete(request: Request, bucket: R2Bucket): Promise<Respons
 
   try {
     await measureR2('delete', () => bucket.delete(resource_path));
-    return new Response("No Content", { status: 204 });
+    return new Response(null, { status: 204 });
   } catch (error) { 
     const err = error as Error;
     logger.error("Error deleting object:", err.message);
