@@ -12,12 +12,13 @@ export interface CacheableResponse {
 }
 
 export interface WebDAVProps {
-  creationdate: string;
+  href: string;
+  creationdate: string | undefined;
   displayname: string | undefined;
   getcontentlanguage: string | undefined;
   getcontentlength: string;
   getcontenttype: string | undefined;
   getetag: string | undefined;
-  getlastmodified: string;
+  getlastmodified: string | undefined;
   resourcetype: string;
 }

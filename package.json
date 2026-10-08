@@ -3,17 +3,23 @@
 	"version": "0.3.0",
 	"private": true,
 	"scripts": {
-	  "deploy": "wrangler deploy",
-	  "dev": "wrangler dev",
-	  "start": "wrangler dev",
-	  "lint": "prettier . --write",
-	  "check": "prettier . --check"
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"lint": "prettier . --write",
+		"check": "prettier . --check",
+		"typecheck": "tsc --noEmit",
+		"build": "esbuild src/index.ts --bundle --format=esm --platform=neutral --main-fields=browser,module,main --outfile=dist/worker.js"
 	},
 	"devDependencies": {
-	  "@cloudflare/workers-types": "^4.20231121.0",
-	  "prettier": "3.1.1",
-	  "typescript": "^5.0.4",
-	  "wrangler": "^4.0.0"
+		"@cloudflare/workers-types": "^5.20261008.1",
+		"esbuild": "^0.28.2",
+		"prettier": "3.1.1",
+		"typescript": "^5.0.4",
+		"wrangler": "^4.0.0"
 	},
-	"type": "module"
-  }
+	"type": "module",
+	"dependencies": {
+		"saxes": "^6.0.0"
+	}
+}
