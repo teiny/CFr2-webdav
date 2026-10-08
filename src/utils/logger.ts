@@ -7,3 +7,12 @@ export const logger = {
       console.debug(`[DEBUG] ${new Date().toISOString()} - ${message}`, ...args);
   }
 };
+
+export async function measureR2<T>(operation: string, run: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  try {
+    return await run();
+  } finally {
+    logger.info('R2 operation', { operation, duration_ms: Date.now() - started });
+  }
+}
