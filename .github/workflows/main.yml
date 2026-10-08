@@ -12,19 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Create wrangler.toml
-        env:
-          USERNAME: ${{ secrets.USERNAME || '_user' }}
-          PASSWORD: ${{ secrets.PASSWORD || '_pass' }}
-          BUCKET_NAME: ${{ secrets.BUCKET_NAME || 'bucket' }}
-        run: |
-          sed -e "s/\$USERNAME/$USERNAME/g" \
-              -e "s/\$PASSWORD/$PASSWORD/g" \
-              -e "s/\$BUCKET_NAME/$BUCKET_NAME/g" \
-              wrangler.toml.template > wrangler.toml
-          cat wrangler.toml
+        run: cp wrangler.toml.template wrangler.toml
 
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: '4.148.0'

@@ -1,12 +1,10 @@
-name = "cf-r2-webdav"
+name = "cfr2-webdav"
 main = "src/index.ts"
 compatibility_date = "2023-01-01"
 
-[vars]
-USERNAME = "_user"
-PASSWORD = "_pass"
-BUCKET_NAME = "bucket"
+# Runtime variables are managed in the Cloudflare dashboard.
+keep_vars = true
 
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "bucket"
+# Omit bucket_name to inherit the existing BUCKET binding on deploy.

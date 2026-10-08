@@ -39,6 +39,10 @@
 1. 【获取API令牌】在 Cloudflare 仪表板中，创建一个新的 API 令牌，确保它有足够的权限来管理编辑Workers(和 R2)。
 2. 【获取桶名称】创建的 R2 存储桶
 
+3. 在 Cloudflare Dashboard 的 `cfr2-webdav` Worker 中设置运行时变量 `USERNAME`、`PASSWORD`（密码建议使用 Secret），并将 R2 绑定 `BUCKET` 指向实际存储桶。`BUCKET_NAME` 如需保留可在 Dashboard 设置；代码实际通过 `BUCKET` 绑定访问存储。
+
+部署配置使用 `keep_vars = true`，且不再定义账号、密码或桶名的默认值。R2 配置只声明绑定名 `BUCKET`，后续 Wrangler 部署继承已有的同名 R2 绑定。首次使用时需先创建目标 Worker 并配置这些变量和绑定；已被覆盖的值需要在 Dashboard 恢复一次。R2 绑定若使用特殊 jurisdiction，需要在配置中声明相同 jurisdiction 才能继承。
+
 ### 步骤 2: 准备仓库
 
 Fork 这个仓库到您的 GitHub 账户。
@@ -51,9 +55,8 @@ https://github.com/aigem/CFr2-webdav
 在您的 GitHub 仓库中，转到 Settings -> Secrets and variables -> Actions，添加以下 secrets：
 
 - `CLOUDFLARE_API_TOKEN`: 步骤1的 Cloudflare API 令牌 (必须)
-- `USERNAME`: WebDAV 服务器的用户名 （可选，默认为 _user）
-- `PASSWORD`: WebDAV 服务器的密码 （可选，默认为 _pass）
-- `BUCKET_NAME`: 的 R2 存储桶名称 （可选，默认为 bucket 如果与你实际的bucket不符，则GithubAction部署会失败）
+
+账号、密码和 R2 绑定统一在 Cloudflare Dashboard 管理；工作流不再从 GitHub Secrets 注入或回退这些参数。工作流固定使用 Wrangler 4.148.0，以支持已有 R2 绑定继承。
 
 ### 步骤 4: 配置 GitHub Actions
 
@@ -88,7 +91,7 @@ https://github.com/aigem/CFr2-webdav
    npm install
    ```
 
-3. 修改wrangler.toml.template为wrangler.toml文件，并修改为你的实际参数：
+3. 将 `wrangler.toml.template` 复制为 `wrangler.toml`。本地认证值放在被忽略的 `.dev.vars` 中；线上变量不会自动下载到本地。配置省略桶名时，Wrangler 本地开发使用本地模拟 R2；不要将本地生成的桶名提交或用于线上部署。
   
 4. 使用 Wrangler 进行本地开发：
    ```bash
