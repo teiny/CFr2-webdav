@@ -21,4 +21,13 @@ export interface WebDAVProps {
   getetag: string | undefined;
   getlastmodified: string | undefined;
   resourcetype: string;
+  deadProperties?: StoredProperty[];
+  quotaUsedBytes?: string;
+  quotaSupported?: boolean;
+}
+
+export interface StoredProperty {
+  name: string;
+  namespace: string;
+  xml: string;
 }

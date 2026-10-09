@@ -1,11 +1,19 @@
 // 文件名：src/utils/webdavUtils.ts
-import { SaxesParser } from 'saxes';
 import { WebDAVProps } from '../types';
 import { measureR2 } from './logger';
+import { internalKey } from './resources';
+import { elements, escapeXML, parseXML, propertyElement } from './xml';
+import { liveProperties } from './properties';
 
 export function make_resource_path(request: Request): string {
   const url = new URL(request.url);
-  return decodeURIComponent(url.pathname.slice(1));
+  return url.pathname.slice(1).split('/').map(segment => {
+    const decoded = decodeURIComponent(segment);
+    if (decoded.includes('/') || decoded === '.' || decoded === '..' || decoded.includes('\u0000')) {
+      throw new URIError('Invalid path segment');
+    }
+    return decoded;
+  }).join('/');
 }
 
 export function resourceHref(key: string): string {
@@ -21,13 +29,13 @@ export async function* listAll(bucket: R2Bucket, prefix: string): AsyncGenerator
   do {
     const result = await measureR2('list', () => bucket.list({ ...options, cursor }));
     for (const object of result.objects) {
-      if (!seen.has(object.key)) {
+      if (!internalKey(object.key) && !seen.has(object.key)) {
         seen.add(object.key);
         yield fromR2Object(object);
       }
     }
     for (const key of result.delimitedPrefixes) {
-      if (!seen.has(key)) {
+      if (!internalKey(key) && !seen.has(key)) {
         seen.add(key);
         yield fromR2Object(null, key);
       }
@@ -52,7 +60,7 @@ export function fromR2Object(object: R2Object | null, key = object?.key || ''): 
   }
   return {
     href: resourceHref(key),
-    creationdate: object.uploaded.toISOString(),
+    creationdate: object.customMetadata?.creationdate || object.uploaded.toISOString(),
     displayname: key.replace(/\/$/, '').split('/').pop(),
     getcontentlanguage: object.httpMetadata?.contentLanguage,
     getcontentlength: object.size.toString(),
@@ -63,7 +71,7 @@ export function fromR2Object(object: R2Object | null, key = object?.key || ''): 
   };
 }
 
-interface RequestedProp {
+export interface RequestedProp {
   name: string;
   namespace: string;
 }
@@ -75,42 +83,21 @@ export interface PropfindSelection {
 
 export function parsePropfind(body: string): PropfindSelection {
   if (!body.trim()) return { mode: 'allprop', properties: [] };
-  const selection: PropfindSelection = { mode: 'allprop', properties: [] };
-  const parser = new SaxesParser({ xmlns: true });
-  let depth = 0;
-  let modes = 0;
-  parser.on('doctype', () => { throw new Error('DOCTYPE is not supported'); });
-  parser.on('error', error => { throw error; });
-  parser.on('opentag', tag => {
-    depth++;
-    if (depth === 1 && (tag.uri !== 'DAV:' || tag.local !== 'propfind')) {
-      throw new Error('Expected DAV:propfind');
-    }
-    if (depth === 2) {
-      if (tag.uri !== 'DAV:' || !['allprop', 'propname', 'prop'].includes(tag.local)) {
-        throw new Error('Unsupported property selection');
-      }
-      selection.mode = tag.local as PropfindSelection['mode'];
-      modes++;
-    }
-    if (depth === 3 && selection.mode === 'prop') {
-      selection.properties.push({ name: tag.local, namespace: tag.uri });
-    } else if (depth > 2) {
-      throw new Error('Invalid property selection');
-    }
-  });
-  parser.on('closetag', () => { depth--; });
-  parser.write(body).close();
-  if (modes !== 1) throw new Error('Expected one property selection');
-  return selection;
-}
-
-const propertyNames = ['creationdate', 'displayname', 'getcontentlanguage', 'getcontentlength', 'getcontenttype',
-  'getetag', 'getlastmodified', 'resourcetype'] as const;
-
-function escapeXML(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  const root = parseXML(body);
+  if (root.namespace !== 'DAV:' || root.name !== 'propfind') throw new Error('Expected DAV:propfind');
+  const children = elements(root).filter(node => node.namespace === 'DAV:');
+  const modes = children.filter(node => ['allprop', 'propname', 'prop'].includes(node.name));
+  const includes = children.filter(node => node.name === 'include');
+  if (modes.length !== 1 || includes.length > 1 || (includes.length && modes[0].name !== 'allprop')) {
+    throw new Error('Expected one property selection');
+  }
+  const mode = modes[0].name as PropfindSelection['mode'];
+  if (mode !== 'prop' && elements(modes[0]).length) throw new Error('Expected empty selection');
+  const requested = mode === 'prop' ? elements(modes[0]) : includes.flatMap(elements);
+  if (requested.some(node => node.children.some(child => typeof child !== 'string' || child.trim()))) {
+    throw new Error('Property names must be empty');
+  }
+  return { mode, properties: requested.map(node => ({ name: node.name, namespace: node.namespace })) };
 }
 
 export function generatePropfindResponse(props: WebDAVProps[], selection: PropfindSelection): string {
@@ -122,25 +109,30 @@ ${responses}
 }
 
 function generatePropResponse(prop: WebDAVProps, selection: PropfindSelection): string {
-  const requested = selection.mode === 'prop' ? selection.properties : propertyNames
+  const defaults: RequestedProp[] = liveProperties
     .filter(name => prop[name] !== undefined).map(name => ({ name, namespace: 'DAV:' }));
+  for (const property of prop.deadProperties || []) {
+    if (!defaults.some(item => item.name === property.name && item.namespace === property.namespace)) defaults.push(property);
+  }
+  if (selection.mode === 'propname' && prop.quotaSupported) defaults.push({ name: 'quota-used-bytes', namespace: 'DAV:' });
+  const selected = selection.mode === 'prop' ? selection.properties : [...defaults, ...selection.properties];
+  const requested = selected.filter((property, index) => selected.findIndex(other => other.name === property.name && other.namespace === property.namespace) === index);
   const found: string[] = [];
   const missing: string[] = [];
   for (const property of requested) {
-    const supported = property.namespace === 'DAV:' && propertyNames.some(name => name === property.name);
-    const value = supported ? prop[property.name as typeof propertyNames[number]] : undefined;
-    const prefix = property.namespace === 'DAV:' ? 'D' :
-      property.namespace === 'http://www.w3.org/XML/1998/namespace' ? 'xml' : property.namespace ? 'P' : '';
-    const tag = prefix ? `${prefix}:${property.name}` : property.name;
-    const namespace = prefix === 'P' ?
-      ` xmlns:P="${escapeXML(property.namespace)}"` : '';
-    if (value === undefined) {
-      missing.push(`<${tag}${namespace}/>`);
+    const stored = prop.deadProperties?.find(item => item.name === property.name && item.namespace === property.namespace);
+    const supported = property.namespace === 'DAV:' && liveProperties.some(name => name === property.name);
+    const value = supported ? prop[property.name as typeof liveProperties[number]] :
+      property.namespace === 'DAV:' && property.name === 'quota-used-bytes' ? prop.quotaUsedBytes : undefined;
+    if (value === undefined && !stored && !(selection.mode === 'propname' && property.name === 'quota-used-bytes' && prop.quotaSupported)) {
+      missing.push(propertyElement(property.name, property.namespace));
     } else if (selection.mode === 'propname') {
-      found.push(`<${tag}${namespace}/>`);
+      found.push(propertyElement(property.name, property.namespace));
+    } else if (stored) {
+      found.push(stored.xml);
     } else {
-      const content = property.name === 'resourcetype' ? (value ? '<D:collection/>' : '') : escapeXML(value);
-      found.push(`<${tag}${namespace}>${content}</${tag}>`);
+      const content = property.name === 'resourcetype' ? (value ? '<D:collection/>' : '') : escapeXML(value ?? '');
+      found.push(propertyElement(property.name, property.namespace, content));
     }
   }
   const propstat = (properties: string[], status: string) => properties.length || (!requested.length && status === '200 OK') ? `

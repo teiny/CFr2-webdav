@@ -56,3 +56,35 @@ export function preconditionStatus(request: Request, object: R2Object | null): n
 	}
 	return null;
 }
+
+interface DAVCondition { value: string; etag: boolean; not: boolean }
+interface DAVList { uri?: string; conditions: DAVCondition[] }
+
+export function parseDAVIf(value: string): DAVList[] {
+  let rest = value.trim();
+  let uri: string | undefined;
+  let tagged: boolean | undefined;
+  const lists: DAVList[] = [];
+  while (rest) {
+    if (rest.startsWith('<')) {
+      const match = /^<([^<>\s]+)>\s*/.exec(rest);
+      if (!match || tagged === false) throw new Error('Invalid If header');
+      uri = match[1]; tagged = true; rest = rest.slice(match[0].length);
+      if (!rest.startsWith('(')) throw new Error('Expected condition list');
+    } else if (tagged === undefined) tagged = false;
+    if (!rest.startsWith('(')) throw new Error('Expected condition list');
+    rest = rest.slice(1).trimStart();
+    const conditions: DAVCondition[] = [];
+    while (!rest.startsWith(')')) {
+      const match = /^(Not\s+)?(?:\[((?:W\/)?"[\x21\x23-\x7e\x80-\xff]*")\]|<([^<>\s]+)>)\s*/.exec(rest);
+      if (!match) throw new Error('Invalid If condition');
+      conditions.push({ value: match[2] ?? match[3], etag: match[2] !== undefined, not: !!match[1] });
+      rest = rest.slice(match[0].length);
+    }
+    if (!conditions.length) throw new Error('Empty condition list');
+    lists.push({ uri, conditions });
+    rest = rest.slice(1).trimStart();
+  }
+  if (!lists.length) throw new Error('Empty If header');
+  return lists;
+}

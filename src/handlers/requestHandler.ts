@@ -13,7 +13,7 @@ export async function handleRequest(request: Request, env: Env, ctx: ExecutionCo
       return new Response("Unauthorized", {
         status: 401,
         headers: {
-          "WWW-Authenticate": 'Basic realm="WebDAV"'
+          "WWW-Authenticate": 'Basic realm="WebDAV", charset="UTF-8"'
         }
       });
     }
